@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pac-Man Premium - Sin Assets Externos</title>
+    <title>Pac-Man - 60 FPS Fluido</title>
     <style>
         body {
             background-color: #0c0f1d;
@@ -36,6 +36,8 @@
             border: 4px solid #1a237e;
             box-shadow: 0 0 25px rgba(26, 35, 126, 0.8);
             border-radius: 8px;
+            /* Optimizando renderizado en navegadores */
+            image-rendering: optimizeSpeed; 
         }
         .instructions {
             margin-top: 15px;
@@ -45,10 +47,7 @@
             max-width: 400px;
             line-height: 1.4;
         }
-        .highlight {
-            color: #ff4081;
-            font-weight: bold;
-        }
+        .highlight { color: #ff4081; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -56,25 +55,24 @@
     <h1>Pac-Man Evolution</h1>
     <div class="score-board">Puntuación: <span id="score">0</span></div>
     
-    <!-- Lienzo del juego más grande: 19 columnas x 19 filas * 30px = 570x570 -->
     <canvas id="gameCanvas" width="570" height="570"></canvas>
     
     <div class="instructions">
-        Usa las <span class="highlight">flechas del teclado</span> para moverte.<br>
-        ¡Mira los ojos de los fantasmas! Sabrás hacia dónde cambiarán de dirección.
+        Usa las <span class="highlight">flechas del teclado</span>.<br>
+        El movimiento ahora es a 60 FPS. ¡Siente la fluidez al girar en las esquinas!
     </div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { alpha: false }); // alpha false mejora rendimiento
         const scoreElement = document.getElementById('score');
 
         const TILE_SIZE = 30;
         const ROWS = 19;
         const COLS = 19;
+        const SPEED = 0.12; // Velocidad de movimiento continua (casillas por frame)
 
-        // MAPA AMPLIADO Y MEJORADO (19x19)
-        // 1 = Pared, 0 = Punto, 2 = Vacío (Pasillos limpios)
+        // MAPA
         let map = [
             [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
             [1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
@@ -98,116 +96,123 @@
         ];
 
         let score = 0;
-        
-        // Sistema de partículas para el mini rastro de Pac-Man
-        let trailParticles = [];
 
-        // Jugador mejorado con animación de boca
+        // JUGADOR CON MOVIMIENTO CONTINUO
         let pacman = { 
-            x: 1, 
-            y: 1, 
-            vx: 0, 
-            vy: 0,
-            mouthAngle: 0.2,
-            mouthClosing: false,
-            currentDir: 'right'
+            x: 1, y: 1,                 // Coordenadas actuales exactas (decimales)
+            targetX: 1, targetY: 1,     // Hacia qué casilla se dirige
+            vx: 0, vy: 0,               // Velocidad actual
+            nextVx: 0, nextVy: 0,       // "Buffer" de la siguiente tecla presionada
+            currentDir: 'right', nextDir: 'right'
         };
         
-        // 4 Fantasmas clásicos con colores y personalidades visuales distintas
         let ghosts = [
-            { x: 9, y: 8, vx: 1, vy: 0, color: '#ff0000', name: 'Blinky' },  // Rojo
-            { x: 8, y: 10, vx: -1, vy: 0, color: '#ffb8ff', name: 'Pinky' }, // Rosado
-            { x: 10, y: 10, vx: 0, vy: -1, color: '#00ffff', name: 'Inky' }, // Cian
-            { x: 9, y: 12, vx: 0, vy: 1, color: '#ffb852', name: 'Clyde' }   // Naranja
+            { x: 9, y: 8, targetX: 9, targetY: 8, vx: 1, vy: 0, color: '#ff0000' },
+            { x: 8, y: 10, targetX: 8, targetY: 10, vx: -1, vy: 0, color: '#ffb8ff' },
+            { x: 10, y: 10, targetX: 10, targetY: 10, vx: 0, vy: -1, color: '#00ffff' },
+            { x: 9, y: 12, targetX: 9, targetY: 12, vx: 0, vy: 1, color: '#ffb852' }
         ];
 
-        // Escuchar teclado para cambiar dirección y registrar la orientación exacta
+        // Se guarda la INTECION del jugador (Buffer) para curvas fluidas
         document.addEventListener('keydown', (e) => {
-            if(e.key === 'ArrowUp')    { pacman.vx = 0; pacman.vy = -1; pacman.currentDir = 'up'; }
-            if(e.key === 'ArrowDown')  { pacman.vx = 0; pacman.vy = 1;  pacman.currentDir = 'down'; }
-            if(e.key === 'ArrowLeft')  { pacman.vx = -1; pacman.vy = 0; pacman.currentDir = 'left'; }
-            if(e.key === 'ArrowRight') { pacman.vx = 1; pacman.vy = 0;  pacman.currentDir = 'right'; }
+            if(e.key === 'ArrowUp')    { pacman.nextVx = 0; pacman.nextVy = -1; pacman.nextDir = 'up'; }
+            if(e.key === 'ArrowDown')  { pacman.nextVx = 0; pacman.nextVy = 1;  pacman.nextDir = 'down'; }
+            if(e.key === 'ArrowLeft')  { pacman.nextVx = -1; pacman.nextVy = 0; pacman.nextDir = 'left'; }
+            if(e.key === 'ArrowRight') { pacman.nextVx = 1; pacman.nextVy = 0;  pacman.nextDir = 'right'; }
         });
 
         function update() {
-            // Animación de la boca de Pacman (Cerrarse y abrirse de forma fluida)
-            if (pacman.vx !== 0 || pacman.vy !== 0) {
-                if (pacman.mouthClosing) {
-                    pacman.mouthAngle -= 0.05;
-                    if (pacman.mouthAngle <= 0.05) pacman.mouthClosing = false;
-                } else {
-                    pacman.mouthAngle += 0.05;
-                    if (pacman.mouthAngle >= 0.4) pacman.mouthClosing = true;
-                }
+            // 1. MOVIMIENTO FLUIDO DE PAC-MAN (Interpolar hacia la casilla objetivo)
+            let dx = pacman.targetX - pacman.x;
+            let dy = pacman.targetY - pacman.y;
+            let dist = Math.sqrt(dx * dx + dy * dy);
 
-                // Generar MINI RASTRO solo si se está moviendo
-                // Colocamos la partícula en el centro de la celda actual antes de avanzar
-                trailParticles.push({
-                    x: pacman.x * TILE_SIZE + TILE_SIZE / 2,
-                    y: pacman.y * TILE_SIZE + TILE_SIZE / 2,
-                    alpha: 1.0,
-                    size: 6
-                });
-            }
-
-            // Actualizar partículas del rastro (desvanecimiento)
-            for (let i = trailParticles.length - 1; i >= 0; i--) {
-                trailParticles[i].alpha -= 0.08; // Velocidad de desaparición
-                trailParticles[i].size -= 0.2;   // Se encoge ligeramente
-                if (trailParticles[i].alpha <= 0 || trailParticles[i].size <= 0) {
-                    trailParticles.splice(i, 1);
-                }
-            }
-
-            // Siguiente posición calculada de Pac-Man
-            let nextX = pacman.x + pacman.vx;
-            let nextY = pacman.y + pacman.vy;
-
-            // Comprobar colisión con los muros
-            if (map[nextY] && map[nextY][nextX] !== 1) {
-                pacman.x = nextX;
-                pacman.y = nextY;
+            if (dist > 0.05) {
+                // Si aún no llega al centro de la casilla, sigue moviéndose
+                let moveAmount = Math.min(SPEED, dist);
+                pacman.x += (dx / dist) * moveAmount;
+                pacman.y += (dy / dist) * moveAmount;
             } else {
-                // Se detiene al chocar contra un muro
-                pacman.vx = 0;
-                pacman.vy = 0;
+                // Llegó exactamente a la casilla, calcular siguiente paso
+                pacman.x = pacman.targetX;
+                pacman.y = pacman.targetY;
+
+                // Intentar girar usando la tecla guardada en el buffer
+                if (map[pacman.y + pacman.nextVy] && map[pacman.y + pacman.nextVy][pacman.x + pacman.nextVx] !== 1) {
+                    pacman.vx = pacman.nextVx;
+                    pacman.vy = pacman.nextVy;
+                    pacman.currentDir = pacman.nextDir;
+                    pacman.targetX = pacman.x + pacman.vx;
+                    pacman.targetY = pacman.y + pacman.vy;
+                } 
+                // Si no puede girar, intentar seguir derecho
+                else if (map[pacman.y + pacman.vy] && map[pacman.y + pacman.vy][pacman.x + pacman.vx] !== 1) {
+                    pacman.targetX = pacman.x + pacman.vx;
+                    pacman.targetY = pacman.y + pacman.vy;
+                } 
+                // Si choca contra pared
+                else {
+                    pacman.vx = 0;
+                    pacman.vy = 0;
+                }
             }
 
-            // Comer puntos del mapa
-            if (map[pacman.y][pacman.x] === 0) {
-                map[pacman.y][pacman.x] = 2; // Celda ahora queda vacía
+            // Comer puntos usando redondeo para máxima precisión
+            let currentGridX = Math.round(pacman.x);
+            let currentGridY = Math.round(pacman.y);
+            if (map[currentGridY] && map[currentGridY][currentGridX] === 0) {
+                map[currentGridY][currentGridX] = 2; 
                 score += 10;
                 scoreElement.innerText = score;
             }
 
-            // Lógica avanzada de movimiento y colisión de Fantasmas
+            // 2. MOVIMIENTO FLUIDO DE FANTASMAS
             ghosts.forEach(g => {
-                let gx = g.x + g.vx;
-                let gy = g.y + g.vy;
-                
-                // Si no hay pared enfrente, tiene probabilidad de seguir o buscar intersección
-                if (map[gy] && map[gy][gx] !== 1 && Math.random() > 0.15) {
-                    g.x = gx;
-                    g.y = gy;
+                let gdx = g.targetX - g.x;
+                let gdy = g.targetY - g.y;
+                let gdist = Math.sqrt(gdx * gdx + gdy * gdy);
+
+                if (gdist > 0.05) {
+                    let gMove = Math.min(SPEED * 0.9, gdist); // Ligeramente más lentos que Pacman
+                    g.x += (gdx / gdist) * gMove;
+                    g.y += (gdy / gdist) * gMove;
                 } else {
-                    // Si choca o decide girar de forma aleatoria inteligente:
-                    let dirs = [];
-                    if (map[g.y-1] && map[g.y-1][g.x] !== 1) dirs.push([0, -1, 'up']);
-                    if (map[g.y+1] && map[g.y+1][g.x] !== 1) dirs.push([0, 1, 'down']);
-                    if (map[g.y][g.x-1] !== 1) dirs.push([-1, 0, 'left']);
-                    if (map[g.y][g.x+1] !== 1) dirs.push([1, 0, 'right']);
-                    
-                    if (dirs.length > 0) {
-                        let randomDir = dirs[Math.floor(Math.random() * dirs.length)];
-                        g.vx = randomDir[0];
-                        g.vy = randomDir[1];
+                    g.x = g.targetX;
+                    g.y = g.targetY;
+
+                    let nextX = g.x + g.vx;
+                    let nextY = g.y + g.vy;
+
+                    // Decidir hacia dónde ir en la intersección
+                    if (map[nextY] && map[nextY][nextX] !== 1 && Math.random() > 0.2) {
+                        g.targetX = nextX;
+                        g.targetY = nextY;
+                    } else {
+                        let dirs = [];
+                        if (map[g.y-1] && map[g.y-1][g.x] !== 1 && g.vy !== 1) dirs.push([0, -1]);
+                        if (map[g.y+1] && map[g.y+1][g.x] !== 1 && g.vy !== -1) dirs.push([0, 1]);
+                        if (map[g.y][g.x-1] !== 1 && g.vx !== 1) dirs.push([-1, 0]);
+                        if (map[g.y][g.x+1] !== 1 && g.vx !== -1) dirs.push([1, 0]);
+                        
+                        if (dirs.length > 0) {
+                            let randomDir = dirs[Math.floor(Math.random() * dirs.length)];
+                            g.vx = randomDir[0];
+                            g.vy = randomDir[1];
+                            g.targetX = g.x + g.vx;
+                            g.targetY = g.y + g.vy;
+                        } else {
+                            // Calle sin salida, regresar
+                            g.vx *= -1;
+                            g.vy *= -1;
+                            g.targetX = g.x + g.vx;
+                            g.targetY = g.y + g.vy;
+                        }
                     }
-                    g.x += g.vx;
-                    g.y += g.vy;
                 }
 
-                // Condición de derrota: El fantasma toca a Pac-Man
-                if (g.x === pacman.x && g.y === pacman.y) {
+                // Colisión milimétrica usando el Teorema de Pitágoras real (no bloques)
+                let distToPacman = Math.hypot(g.x - pacman.x, g.y - pacman.y);
+                if (distToPacman < 0.7) {
                     alert("¡Te han atrapado! Puntuación final: " + score);
                     document.location.reload(); 
                 }
@@ -215,24 +220,23 @@
         }
 
         function draw() {
-            // Limpiar pantalla entera
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // Fondo unificado súper optimizado
+            ctx.fillStyle = '#040610';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // 1. DIBUJAR EL LABERINTO REESTRUCTURADO
+            // DIBUJAR MAPA
             for (let r = 0; r < ROWS; r++) {
                 for (let c = 0; c < COLS; c++) {
                     let posX = c * TILE_SIZE;
                     let posY = r * TILE_SIZE;
 
                     if (map[r][c] === 1) {
-                        // Paredes modernas con diseño de bordes suaves
                         ctx.fillStyle = '#1a237e'; 
                         ctx.fillRect(posX + 2, posY + 2, TILE_SIZE - 4, TILE_SIZE - 4);
                         ctx.strokeStyle = '#303f9f';
                         ctx.lineWidth = 1;
                         ctx.strokeRect(posX, posY, TILE_SIZE, TILE_SIZE);
                     } else if (map[r][c] === 0) {
-                        // Puntos clásicos brillantes
                         ctx.fillStyle = '#ffb74d'; 
                         ctx.beginPath();
                         ctx.arc(posX + TILE_SIZE / 2, posY + TILE_SIZE / 2, 3.5, 0, Math.PI * 2);
@@ -241,75 +245,59 @@
                 }
             }
 
-            // 2. DIBUJAR EL MINI RASTRO DE PAC-MAN
-            trailParticles.forEach(p => {
-                ctx.save();
-                ctx.globalAlpha = p.alpha;
-                ctx.fillStyle = 'rgba(255, 235, 59, 0.6)';
-                ctx.shadowColor = '#fff59d';
-                ctx.shadowBlur = 8;
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-            });
-
-            // 3. DIBUJAR PAC-MAN REDISEÑADO CON OJO Y ÁNGULO ROTATIVO
+            // DIBUJAR PAC-MAN FLUIDO
             ctx.save();
-            // Mover el origen del dibujo al centro de Pac-man para poder rotarlo libremente
             let pCenterX = pacman.x * TILE_SIZE + TILE_SIZE / 2;
             let pCenterY = pacman.y * TILE_SIZE + TILE_SIZE / 2;
             ctx.translate(pCenterX, pCenterY);
 
-            // Rotar el lienzo según hacia dónde se dirija el personaje
             if (pacman.currentDir === 'down') ctx.rotate(Math.PI / 2);
             else if (pacman.currentDir === 'left') ctx.rotate(Math.PI);
             else if (pacman.currentDir === 'up') ctx.rotate(-Math.PI / 2);
-            // 'right' no necesita rotación (es el ángulo por defecto 0)
 
-            // Cuerpo e imitación de masticado mediante arcos mutables
+            // Animación de boca vinculada al tiempo real del reloj, nunca laguea
+            let time = Date.now() * 0.015;
+            // Si está quieto, dejar la boca a medio abrir
+            let mAngle = (pacman.vx === 0 && pacman.vy === 0) ? 0.2 : (Math.sin(time) + 1) * 0.15 + 0.05;
+
             ctx.fillStyle = '#ffeb3b';
             ctx.beginPath();
-            ctx.arc(0, 0, TILE_SIZE / 2 - 1, pacman.mouthAngle * Math.PI, (2 - pacman.mouthAngle) * Math.PI);
+            ctx.arc(0, 0, TILE_SIZE / 2 - 1, mAngle * Math.PI, (2 - mAngle) * Math.PI);
             ctx.lineTo(0, 0);
             ctx.fill();
 
-            // Dibujar el ojo estilizado de Pac-Man (se rota automáticamente con el cuerpo)
+            // Ojo
             ctx.fillStyle = '#000';
             ctx.beginPath();
             ctx.arc(3, -7, 3, 0, Math.PI * 2);
             ctx.fill();
             ctx.restore();
 
-            // 4. DIBUJAR FANTASMAS REDISEÑADOS CON OJOS DIRECCIONALES
+            // DIBUJAR FANTASMAS
             ghosts.forEach(g => {
                 let gCenterX = g.x * TILE_SIZE + TILE_SIZE / 2;
                 let gCenterY = g.y * TILE_SIZE + TILE_SIZE / 2;
                 let radius = TILE_SIZE / 2 - 2;
 
-                // Dibujar el cuerpo del fantasma (Cabeza redonda + falda recta)
                 ctx.fillStyle = g.color;
                 ctx.beginPath();
-                ctx.arc(gCenterX, gCenterY, radius, Math.PI, 0, false); // Cúpula superior
-                ctx.lineTo(gCenterX + radius, gCenterY + radius);       // Lado derecho hacia abajo
+                ctx.arc(gCenterX, gCenterY, radius, Math.PI, 0, false); 
+                ctx.lineTo(gCenterX + radius, gCenterY + radius);       
                 
-                // Efecto de pies/ondas en la base del fantasma
                 ctx.lineTo(gCenterX + radius / 2, gCenterY + radius - 4);
                 ctx.lineTo(gCenterX, gCenterY + radius);
                 ctx.lineTo(gCenterX - radius / 2, gCenterY + radius - 4);
                 
-                ctx.lineTo(gCenterX - radius, gCenterY + radius);       // Lado izquierdo hacia arriba
+                ctx.lineTo(gCenterX - radius, gCenterY + radius);       
                 ctx.closePath();
                 ctx.fill();
 
-                // Dibujar los globos oculares (Blancos fijos)
                 ctx.fillStyle = '#ffffff';
                 ctx.beginPath();
-                ctx.arc(gCenterX - 4, gCenterY - 3, 4.5, 0, Math.PI * 2); // Ojo Izquierdo
-                ctx.arc(gCenterX + 4, gCenterY - 3, 4.5, 0, Math.PI * 2); // Ojo Derecho
+                ctx.arc(gCenterX - 4, gCenterY - 3, 4.5, 0, Math.PI * 2); 
+                ctx.arc(gCenterX + 4, gCenterY - 3, 4.5, 0, Math.PI * 2); 
                 ctx.fill();
 
-                // Dibujar las pupilas dinámicas (Se mueven según el vector de velocidad vx, vy)
                 ctx.fillStyle = '#0d47a1';
                 let pupilXOffset = g.vx * 2;
                 let pupilYOffset = g.vy * 2;
@@ -321,16 +309,13 @@
             });
         }
 
-        // Bucle central con control de refresco milimétrico
+        // EL BUCLE CENTRAL AHORA USA EL REFRESCO NATIVO DEL MONITOR (~60 FPS)
         function gameLoop() {
             update();
             draw();
-            setTimeout(() => {
-                requestAnimationFrame(gameLoop);
-            }, 160); // Velocidad refinada ideal para el tamaño ampliado del tablero
+            requestAnimationFrame(gameLoop); // Sin bloqueos ni esperas (setTimeout eliminado)
         }
 
-        // Iniciar el juego
         gameLoop();
     </script>
 </body>
