@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pac-Man Básico</title>
+    <style>
+        body {
+            background-color: #111;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: 'Courier New', Courier, monospace;
+            margin-top: 30px;
+        }
+        canvas {
+            background-color: #000;
+            border: 4px solid #1919A6;
+            box-shadow: 0 0 15px rgba(25, 25, 166, 0.8);
+            border-radius: 5px;
+        }
+        .instructions {
+            margin-top: 15px;
+            color: #aaa;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Puntuación: <span id="score">0</span></h2>
+    <!-- El lienzo del juego -->
+    <canvas id="gameCanvas" width="450" height="450"></canvas>
+    <div class="instructions">Usa las flechas del teclado para moverte.</div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+
+        const TILE_SIZE = 30;
+        const ROWS = 15;
+        const COLS = 15;
+
+        // Mapa del juego: 1 = Pared, 0 = Punto, 2 = Vacío
+        let map = [
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
+            [1,0,1,1,1,0,1,0,1,1,1,1,1,0,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,1,1,1,0,1,1,1,0,1,1,1,0,1],
+            [1,0,0,0,1,0,0,0,0,0,1,0,0,0,1],
+            [1,1,1,0,1,1,1,2,1,1,1,0,1,1,1],
+            [1,0,0,0,0,0,1,2,1,0,0,0,0,0,1],
+            [1,1,1,0,1,1,1,1,1,1,1,0,1,1,1],
+            [1,0,0,0,1,0,0,0,0,0,1,0,0,0,1],
+            [1,0,1,1,1,0,1,1,1,0,1,1,1,0,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,1,1,1,0,1,0,1,1,1,1,1,0,1],
+            [1,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+        ];
+
+        let score = 0;
+        
+        // Jugador
+        let pacman = { x: 1, y: 1, vx: 0, vy: 0 };
+        
+        // Enemigos simples
+        let ghosts = [
+            { x: 7, y: 6, vx: 1, vy: 0, color: 'red' },
+            { x: 7, y: 7, vx: -1, vy: 0, color: 'pink' }
+        ];
+
+        // Controles
+        document.addEventListener('keydown', (e) => {
+            if(e.key === 'ArrowUp') { pacman.vx = 0; pacman.vy = -1; }
+            if(e.key === 'ArrowDown') { pacman.vx = 0; pacman.vy = 1; }
+            if(e.key === 'ArrowLeft') { pacman.vx = -1; pacman.vy = 0; }
+            if(e.key === 'ArrowRight') { pacman.vx = 1; pacman.vy = 0; }
+        });
+
+        function update() {
+            // Siguiente posición de Pac-Man
+            let nextX = pacman.x + pacman.vx;
+            let nextY = pacman.y + pacman.vy;
+
+            // Comprobar colisión con paredes
+            if (map[nextY][nextX] !== 1) {
+                pacman.x = nextX;
+                pacman.y = nextY;
+            } else {
+                pacman.vx = 0;
+                pacman.vy = 0; // Se detiene si choca
+            }
+
+            // Comer puntos
+            if (map[pacman.y][pacman.x] === 0) {
+                map[pacman.y][pacman.x] = 2; // Queda vacío
+                score += 10;
+                scoreElement.innerText = score;
+            }
+
+            // Lógica de fantasmas (movimiento aleatorio al chocar)
+            ghosts.forEach(g => {
+                let gx = g.x + g.vx;
+                let gy = g.y + g.vy;
+                
+                if (map[gy][gx] !== 1) {
+                    g.x = gx;
+                    g.y = gy;
+                } else {
+                    let dirs = [[0,1], [0,-1], [1,0], [-1,0]];
+                    let randomDir = dirs[Math.floor(Math.random() * dirs.length)];
+                    g.vx = randomDir[0];
+                    g.vy = randomDir[1];
+                }
+
+                // Perder el juego
+                if (g.x === pacman.x && g.y === pacman.y) {
+                    alert("¡Te atrapó un fantasma! Puntuación final: " + score);
+                    document.location.reload(); // Reinicia el juego
+                }
+            });
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Dibujar el mapa
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (map[r][c] === 1) {
+                        ctx.fillStyle = '#1919A6'; // Color de pared
+                        ctx.fillRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    } else if (map[r][c] === 0) {
+                        ctx.fillStyle = '#fff'; // Puntos
+                        ctx.beginPath();
+                        ctx.arc(c * TILE_SIZE + TILE_SIZE / 2, r * TILE_SIZE + TILE_SIZE / 2, 4, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            }
+
+            // Dibujar Pac-Man
+            ctx.fillStyle = 'yellow';
+            ctx.beginPath();
+            ctx.arc(pacman.x * TILE_SIZE + TILE_SIZE / 2, pacman.y * TILE_SIZE + TILE_SIZE / 2, TILE_SIZE / 2 - 2, 0.2 * Math.PI, 1.8 * Math.PI);
+            ctx.lineTo(pacman.x * TILE_SIZE + TILE_SIZE / 2, pacman.y * TILE_SIZE + TILE_SIZE / 2);
+            ctx.fill();
+
+            // Dibujar Fantasmas
+            ghosts.forEach(g => {
+                ctx.fillStyle = g.color;
+                ctx.beginPath();
+                ctx.arc(g.x * TILE_SIZE + TILE_SIZE / 2, g.y * TILE_SIZE + TILE_SIZE / 2, TILE_SIZE / 2 - 2, Math.PI, 0);
+                ctx.lineTo(g.x * TILE_SIZE + TILE_SIZE - 2, g.y * TILE_SIZE + TILE_SIZE - 2);
+                ctx.lineTo(g.x * TILE_SIZE + 2, g.y * TILE_SIZE + TILE_SIZE - 2);
+                ctx.fill();
+            });
+        }
+
+        // Bucle principal del juego (controlado por tiempo para ir casilla por casilla)
+        function gameLoop() {
+            update();
+            draw();
+            setTimeout(() => {
+                requestAnimationFrame(gameLoop);
+            }, 180); // Velocidad del juego (180ms por movimiento)
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>
